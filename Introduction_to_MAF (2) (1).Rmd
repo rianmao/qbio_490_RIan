@@ -1,0 +1,147 @@
+---
+title: "Introduction to MAF"
+author: Joshua Lin, Christopher Kim, Erika Li, Jeanne Revilla, Mahija Mogalipuvvu, adapted from Nicole Black, Wade Boohar
+date: 07/17/22
+updated: 10/12/2026
+---
+#Partner: Andrew Fletcher
+***Deliverables***
+- upload this R Notebook to your GitHub and submit the link to your Repo on Brightspace
+- include ALL graphs or figures created in this assignment in a folder with your R notebook with descriptive file names.
+
+We encourage you to work with a partner. Therefore, it is okay if your answers are the same as your partner’s as long as everyone understands it and could explain it in their own words if asked. Each person must individually push their code to Github. *If you do work with a partner, at the top of your R Notebook, write the name of you and your partner(s) as a comment.*
+
+***Complete the following coding activity and answer any following questions as comments in your R Notebook***
+
+In this assignment, you will need to use your skills learned in class to demonstrate your understanding of categorical variables and R data structures.
+
+*Pre-Assignment*
+Load all necessary packages, read in the clinical data.csv file you have in your analysis_data folder, and instantiate the MAF_object.
+```{r}
+knitr::opts_knit$set(root.dir = normalizePath("/home1/ckim2269/490_cluster/analysis_data"))
+library(BiocManager)
+library(TCGAbiolinks)
+library(maftools)
+
+
+clin_query <- GDCquery(project = "TCGA-BRCA",
+                       data.category = "Clinical",
+                       data.type = "Clinical Supplement",
+                       data.format = 'BCR Biotab')
+                         
+clinical.BCRtab.all <- GDCprepare(clin_query)      
+
+clinical <- clinical.BCRtab.all$clinical_patient_brca[-c(1,2),]
+colnames(clinical)[ colnames(clinical) == "bcr_patient_barcode" ] <- "Tumor_Sample_Barcode"
+
+maf_query <- GDCquery(                          
+  project = "TCGA-BRCA",
+  data.category = "Simple Nucleotide Variation",
+  access = "open",
+  data.type = "Masked Somatic Mutation",
+  workflow.type = "Aliquot Ensemble Somatic Variant Merging and Masking"
+)
+                      
+GDCdownload(maf_query, method = "api", files.per.chunk = 100)
+maf <- GDCprepare(maf_query)
+
+maf_object <- read.maf(maf = maf,
+                       clinicalData = clinical,
+                       isTCGA = TRUE)
+saveRDS(maf_object, file = "demo_maf_object.rds")
+maf_object = readRDS("demo_maf_object.rds")
+
+```
+
+It's useful to save your MAF_object, so that you don't have to go through the trouble of querying and preparing it everytime. The saveRDS function allows us to save an R object, allowing us to access it directly from our files. 
+```{r}
+saveRDS(fill in with name of your MAF_object, file = "/path/to/analysis_data/maf_object.rds")
+# ex. saveRDS(MAF_object, file = "/home1/yourname/490_cluster/analysis_data/maf_object.rds")
+saveRDS(maf_object, file = "demo_maf_object.rds")
+```
+
+When you reopen a new R session and want to access your MAF_object, you can use the readRDS function to load the object back into a new variable.
+```{r}
+MAF_object <- readRDS(file = "/path/to/analysis_data/maf_object.rds")
+# ex. MAF_object <- readRDS(file = "/home1/yourname/490_cluster/analysis_data/maf_object.rds")
+maf_object = readRDS("demo_maf_object.rds")
+```
+
+*1*
+Choose a clinical variable (or any variable from clin_rad or clin_drug) to separate your populations into two different groups and rewrite the column or create a new column with that variable as a factor. ***Do not use age or vital_status as your clinical variable.*** Hint: if your variable is continuous, you will need to determine your own cutoffs for the different levels of the factor. If your variable is categorical and has more than two possible values, choose the two that are the most common.
+```{r}
+
+detected_mask = ifelse(maf_object@clinical.data$micromet_detection_by_ihc == "YES", T, F)
+undetected_mask = ifelse(maf_object@clinical.data$micromet_detection_by_ihc == "NO", T, F)
+detected_barcode = maf_object@clinical.data$Tumor_Sample_Barcode[detected_mask]
+undetected_barcode = maf_object@clinical.data$Tumor_Sample_Barcode[undetected_mask]
+detected_object = subsetMaf(maf = maf_object, tsb = detected_barcode)
+undetected_object = subsetMaf(maf = maf_object, tsb = undetected_barcode)
+
+
+```
+```{r}
+
+```
+
+
+
+*2*
+Create a co-oncoplot with the top 10-20 (you choose) most mutated genes for the two groups. Pick one that has a large discrepancy in % mutated or type of mutations between the groups and research it. 
+Research it. What is the gene used for? Can you think of any reason for the discrepancy?
+```{r}
+
+coOncoplot(m1 = detected_object, m2 = undetected_object, m1Name = "YES", m2Name = "NO")
+#CDH1 makes a protein E-cadherin, which helps the epithelial cells and surpresses cancer
+#CDH1 is part of cancer supression. A lack of this gene could lead to a wider spread of cancer, leading to the ihc detedting it. 
+
+
+```
+
+
+*3*
+Create a contingency table with your variable and chosen gene. Run a Fisher’s Exact Test between presence of mutations for that gene and your clinical variable. Create and save a mosaic plot. 
+Interpret the output of the Fisher’s Exact Test in terms of the odds ratio and p-value.
+```{r}
+CDH1_maf = subsetMaf(maf = maf_object,
+genes = "CDH1")
+mutation_status = ifelse(maf_object@clinical.data$Tumor_Sample_Barcode %in% CDH1_maf@clinical.data$Tumor_Sample_Barcode, "positive", "negative")
+contingency_table <-table(mutation_status, detected_mask)
+contingency_table
+fisher.test(contingency_table)
+mosaicplot(contingency_table)
+#The odds ratio is 1.7268, what this means is that the odds having a mutation in the negative group is 1.728x high chance than the positive group.The P values shows that it is statistically significant. 
+
+```
+
+
+*4*
+Subset your maf_object based on your chosen clinical variable and create a co-lollipop plot of your chosen gene divided between the two different clinical variable possibilities. Include descriptive names on your plot.
+Do you notice any difference in terms of mutations (e.g. sites, types, number) between the two populations?
+```{r}
+lollipopPlot2(m1 = detected_object,
+m2 = undetected_object,
+m1_name = "Micromets Detected",
+m2_name = "No Micromets Detected",
+gene = "CDH1")
+#using the numbers micromets detected has a higher mutated rate at 18.64% then non micromets detected 11.06%
+#There is no hotspot, and the sites and pretty spread out evenly. At the start of the protein, there is a recurrent site. 
+#The overall mutation pattern between detected and undetected is the pretty much the same. However, detected patients have more frequent mutations.
+
+
+```
+
+
+*5*
+Create your Overall_Survival_Status column and create a mafSurvival KM plot based on mutations in your chosen gene.
+Does there seem to be a difference? Hypothesize why or not based on the other analysis you did with the gene above.
+```{r}
+my_maf = maf_object
+my_maf@clinical.data$Overall_Survival_Status = ifelse(my_maf@clinical.data$vital_status == "Alive", T, F)
+mafSurvival(maf = my_maf,
+            genes = "CDH1",
+            time = "last_contact_days_to",
+            Status = "Overall_Survival_Status",
+            isTCGA = TRUE)
+#There is no difference because the p value is greater than 0.05. CDH1 mutants have no effect on survival based on the p-value. The previous parts told us about how CDH1 spreads and how it mutates. This final part tells us that CDH1 spreading has no correlation to survival with CDH1.
+```
